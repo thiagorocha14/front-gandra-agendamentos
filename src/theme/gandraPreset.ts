@@ -19,6 +19,19 @@ export const gandraPreset = definePreset(Aura, {
       900: '#02220d',
       950: '#031009',
     },
+    secondary: {
+      50: '#f8f7f0',
+      100: '#efebda',
+      200: '#dcd4b9',
+      300: '#c5b88f',
+      400: '#a3945a',
+      500: '#7e741b',
+      600: '#6f6617',
+      700: '#564f10',
+      800: '#353007',
+      900: '#221f02',
+      950: '#100e03',
+    },
     colorScheme: {
       light: {
         surface: {
