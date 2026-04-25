@@ -1,102 +1,116 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
 import Card from 'primevue/card'
-import Image from 'primevue/image'
 import Message from 'primevue/message'
+import Skeleton from 'primevue/skeleton'
 import Tag from 'primevue/tag'
-import { useUserSession } from '@/composables/useUserSession'
+import { API_BASE_URL } from '@/api/apiClient'
+import { PacotesAgendamentosService } from '@/services/PacotesAgendamentosService'
+import type { BookingBundle } from '@/types/api'
 
-const session = useUserSession()
+const loading = ref(true)
+const loadError = ref('')
+const pacotes = ref<BookingBundle[]>([])
 
-interface Pacote {
-  id: string
-  titulo: string
-  descricao: string
-  preco: string
-  destaque?: string
-  imagem: string
-  imagemAlt: string
-  /** quando true, imagem (ex.: logo) usa object-fit contain */
-  imagemContida?: boolean
-}
+const hasData = computed(() => pacotes.value.length > 0)
 
-const pacotes: Pacote[] = [
-  {
-    id: 'basico',
-    titulo: 'Pacote Mensal Básico',
-    descricao:
-      'Ideal para quem está começando ou quer manter o ritmo com constância. Inclui 8 horas de quadra por mês em horários combinados, uso de equipamentos compartilhados e acesso ao grupo de treino leve.',
-    preco: 'R$ 320,00',
-    destaque: 'Popular',
-    imagem: '/fundo.jpg',
-    imagemAlt: 'Quadra de tênis ao ar livre',
-  },
-  {
-    id: 'plus',
-    titulo: 'Pacote Mensal Plus',
-    descricao:
-      'Para quem quer evoluir mais rápido: 12 horas de quadra, prioridade em horários nobres, bolas novas a cada sessão e uma avaliação técnica mensal com o professor.',
-    preco: 'R$ 480,00',
-    imagem: '/logo.png',
-    imagemAlt: 'Logotipo Escola de Tênis Gandra',
-    imagemContida: true,
-  },
-  {
-    id: 'trimestral',
-    titulo: 'Pacote Trimestral Econômico',
-    descricao:
-      'Compromisso de três meses com o melhor custo por aula. Inclui 36 horas no período, desconto em inscrição em torneios internos e camiseta oficial da escola.',
-    preco: 'R$ 1.200,00',
-    destaque: 'Melhor valor',
-    imagem: '/fundo.jpg',
-    imagemAlt: 'Treino em quadra de saibro',
-  },
-]
-
-const feedback = ref<string | null>(null)
-
-function comprar(p: Pacote) {
-  if (!session.isLoggedIn.value) {
-    feedback.value =
-      'Faça login no topo da página para registrar a compra e creditar as horas do pacote no seu saldo.'
-    return
+function coverImageUrl(coverImage: string): string {
+  if (!coverImage.trim()) return ''
+  if (/^https?:\/\//i.test(coverImage)) return coverImage
+  if (coverImage.startsWith('/uploads/')) {
+    const base = API_BASE_URL.replace(/\/$/, '')
+    return `${base}${coverImage}`
   }
-  const adicionadas = session.addPackageHours(p.id)
-  feedback.value = `Pacote "${p.titulo}" (${p.preco}) registrado. Foram adicionadas ${adicionadas} h ao seu saldo. Total agora: ${session.hoursBalance.value} h.`
+  return coverImage
 }
+
+async function carregarPacotes() {
+  loading.value = true
+  loadError.value = ''
+  try {
+    pacotes.value = await PacotesAgendamentosService.buscarPacotes()
+  } catch {
+    loadError.value =
+      'Nao foi possivel carregar os pacotes agora. Tente novamente em alguns instantes.'
+    pacotes.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  void carregarPacotes()
+})
 </script>
 
 <template>
   <div class="pacotes-page">
     <main class="pacotes-page__main">
       <header class="pacotes-page__intro">
-        <h1 class="pacotes-page__heading">Pacotes</h1>
+        <h1 class="pacotes-page__heading">Pacotes de Agendamento</h1>
         <p class="pacotes-page__lede">
-          Planos pensados para cada nível. Escolha o pacote e avance na sua jornada no tênis.
+          Confira os pacotes disponiveis e escolha o plano ideal para sua rotina.
         </p>
       </header>
 
-      <Message v-if="feedback" severity="success" class="pacotes-page__msg" closable @close="feedback = null">
-        {{ feedback }}
+      <Message v-if="loadError" severity="error" class="pacotes-page__msg" :closable="false">
+        {{ loadError }}
+        <Button label="Tentar novamente" class="pacotes-page__retry" text @click="carregarPacotes" />
       </Message>
 
-      <ul class="pacotes-list" role="list">
-        <li v-for="p in pacotes" :key="p.id" class="pacotes-list__item">
+      <ul v-if="loading" class="pacotes-list" role="list">
+        <li v-for="idx in 3" :key="`skeleton-${idx}`" class="pacotes-list__item">
           <Card class="pacote-card">
             <template #content>
               <div class="pacote-grid">
-                <div class="pacote-media" :class="{ 'pacote-media--contida': p.imagemContida }">
-                  <Image :src="p.imagem" :alt="p.imagemAlt" width="960" height="600" class="pacote-image" preview />
+                <Skeleton class="pacote-media" height="14rem" />
+                <div class="pacote-body">
+                  <Skeleton width="80%" height="1.5rem" />
+                  <Skeleton width="100%" height="1rem" />
+                  <Skeleton width="90%" height="1rem" />
+                  <Skeleton width="70%" height="1.75rem" />
+                </div>
+              </div>
+            </template>
+          </Card>
+        </li>
+      </ul>
+
+      <Message v-else-if="!hasData && !loadError" severity="secondary" :closable="false">
+        Nenhum pacote cadastrado no momento.
+      </Message>
+
+      <ul v-else class="pacotes-list" role="list">
+        <li v-for="pacote in pacotes" :key="pacote.id" class="pacotes-list__item">
+          <Card class="pacote-card">
+            <template #content>
+              <div class="pacote-grid">
+                <div class="pacote-media">
+                  <img
+                    v-if="coverImageUrl(pacote.coverImage)"
+                    :src="coverImageUrl(pacote.coverImage)"
+                    :alt="`Imagem de capa do pacote ${pacote.name}`"
+                    class="pacote-image"
+                    loading="lazy"
+                  />
+                  <div v-else class="pacote-placeholder">Sem imagem</div>
                 </div>
                 <div class="pacote-body">
                   <div class="pacote-body__head">
-                    <h2 class="pacote-title">{{ p.titulo }}</h2>
-                    <Tag v-if="p.destaque" severity="success" rounded :value="p.destaque" />
+                    <h2 class="pacote-title">{{ pacote.name }}</h2>
+                    <Tag
+                      :severity="pacote.active ? 'success' : 'secondary'"
+                      rounded
+                      :value="pacote.active ? 'Ativo' : 'Inativo'"
+                    />
                   </div>
-                  <p class="pacote-desc">{{ p.descricao }}</p>
-                  <div class="pacote-actions">
-                    <span class="pacote-preco">{{ p.preco }}</span>
+                  <p class="pacote-desc">{{ pacote.description }}</p>
+                  <div class="pacotes-actions">
+                    <div class="pacote-meta">
+                      <span><strong>Horas:</strong> {{ pacote.totalHours }}</span>
+                      <span><strong>Preco:</strong> {{ pacote.price }}</span>
+                    </div>
                     <Button label="Comprar" icon="pi pi-shopping-cart" severity="success" class="pacote-btn"
                       @click="comprar(p)" />
                   </div>
@@ -131,6 +145,9 @@ function comprar(p: Pacote) {
 
 .pacotes-page__intro {
   margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
 }
 
 .pacotes-page__heading {
@@ -151,6 +168,10 @@ function comprar(p: Pacote) {
 
 .pacotes-page__msg {
   margin-bottom: 1.25rem;
+}
+
+.pacotes-page__retry {
+  margin-left: 0.5rem;
 }
 
 .pacotes-list {
@@ -196,37 +217,22 @@ function comprar(p: Pacote) {
   }
 }
 
-.pacote-media--contida {
-  background: linear-gradient(160deg, var(--p-primary-950), var(--p-primary-800));
-}
-
-.pacote-media--contida .pacote-image :deep(img) {
-  object-fit: contain;
-  padding: clamp(1rem, 4vw, 2rem);
-}
-
 .pacote-image {
   display: block;
   width: 100%;
   height: 100%;
   min-height: clamp(12rem, 38vw, 16rem);
-}
-
-.pacote-image :deep(.p-image),
-.pacote-image :deep(img) {
-  width: 100%;
-  height: 100%;
-  min-height: inherit;
   object-fit: cover;
-  display: block;
 }
 
-@media (min-width: 768px) {
-
-  .pacote-image :deep(.p-image),
-  .pacote-image :deep(img) {
-    min-height: 17rem;
-  }
+.pacote-placeholder {
+  width: 100%;
+  min-height: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--p-surface-600);
+  font-weight: 600;
 }
 
 .pacote-body {
@@ -262,7 +268,22 @@ function comprar(p: Pacote) {
   color: var(--p-surface-700);
 }
 
-.pacote-actions {
+.pacote-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1rem;
+  color: var(--p-surface-800);
+  font-size: 0.95rem;
+}
+
+.pacote-btn {
+  font-weight: 600;
+  min-width: min(100%, 11rem);
+}
+
+.pacotes-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -270,17 +291,6 @@ function comprar(p: Pacote) {
   gap: 1rem;
   margin-top: auto;
   padding-top: 0.25rem;
-}
-
-.pacote-preco {
-  font-size: clamp(1.25rem, 3vw, 1.5rem);
-  font-weight: 700;
-  color: var(--p-primary-700);
-}
-
-.pacote-btn {
-  font-weight: 600;
-  min-width: min(100%, 11rem);
 }
 
 @media (max-width: 480px) {

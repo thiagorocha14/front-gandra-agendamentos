@@ -47,7 +47,18 @@ const navItems = [
   { label: 'Agendar', to: '/agendamento', name: 'agendamento' },
   { label: 'Calendário', to: '/calendario', name: 'calendario' },
   { label: 'Pacotes', to: '/pacotes', name: 'pacotes' },
+  {
+    label: 'Cadastrar Pacotes',
+    to: '/pacotes/novo',
+    name: 'novo-pacote',
+    adminOnly: true,
+  },
 ] as const
+const visibleNavItems = computed(() =>
+  navItems.filter(
+    (item) => !('adminOnly' in item) || !item.adminOnly || session.userCategory.value === 'admin',
+  ),
+)
 
 const loginVisible = ref(false)
 const loginName = ref('')
@@ -104,14 +115,14 @@ watch(
       </RouterLink>
 
       <div class="app-header__actions">
-        <Button icon="pi pi-calendar" severity="secondary" text rounded class="app-header__saldo" :badge="saldoBadgeStr"
-          badge-severity="success" aria-label="Horas disponíveis para agendamentos" :title="saldoBtnTitle"
-          @click="router.push({ name: 'agendamento' })" />
         <template v-if="!session.isLoggedIn.value">
           <Button label="Entrar" icon="pi pi-sign-in" severity="primary" size="small" class="app-header__login"
             @click="openLogin" />
         </template>
         <template v-else>
+        <Button icon="pi pi-calendar" severity="secondary" text rounded class="app-header__saldo" :badge="saldoBadgeStr"
+          badge-severity="success" aria-label="Horas disponíveis para agendamentos" :title="saldoBtnTitle"
+          @click="router.push({ name: 'agendamento' })" />
           <div class="app-header__user" :title="userChipTitle">
             <i class="pi pi-user app-header__user-icon" aria-hidden="true" />
             <span class="app-header__user-name">{{ session.displayName }}</span>
@@ -140,7 +151,7 @@ watch(
       <aside class="app-sidebar" :class="{ 'app-sidebar--collapsed': isDesktop && !sidebarOpen }"
         aria-label="Navegação principal">
         <nav class="side-nav">
-          <RouterLink v-for="item in navItems" :key="item.name" :to="item.to" class="side-nav__link"
+          <RouterLink v-for="item in visibleNavItems" :key="item.name" :to="item.to" class="side-nav__link"
             active-class="side-nav__link--active">
             {{ item.label }}
           </RouterLink>
@@ -160,7 +171,7 @@ watch(
       </template>
 
       <nav class="drawer-nav" aria-label="Menu">
-        <RouterLink v-for="item in navItems" :key="`d-${item.name}`" :to="item.to" class="drawer-nav__link"
+        <RouterLink v-for="item in visibleNavItems" :key="`d-${item.name}`" :to="item.to" class="drawer-nav__link"
           active-class="drawer-nav__link--active" @click="closeDrawer">
           {{ item.label }}
         </RouterLink>

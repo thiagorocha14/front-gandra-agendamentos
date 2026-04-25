@@ -33,3 +33,26 @@ export interface Booking {
   approvedBy: string | null
   approvedAt: string | null
 }
+
+/** Entidade de pacote retornada por GET/POST /booking-bundles */
+export interface BookingBundle {
+  id: string | number
+  name: string
+  description: string
+  totalHours: number
+  price: string
+  active: boolean
+  coverImage: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** Entrada para criação de pacote no front-end */
+export interface CreateBookingBundleInput {
+  name: string
+  description: string
+  totalHours: number
+  price: string
+  active?: boolean
+  coverImage: File
+}
