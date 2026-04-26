@@ -6,8 +6,11 @@ import Message from 'primevue/message'
 import Skeleton from 'primevue/skeleton'
 import Tag from 'primevue/tag'
 import { API_BASE_URL } from '@/api/apiClient'
+import { useUserSession } from '@/composables/useUserSession'
 import { PacotesAgendamentosService } from '@/services/PacotesAgendamentosService'
 import type { BookingBundle } from '@/types/api'
+
+const session = useUserSession()
 
 const loading = ref(true)
 const loadError = ref('')
@@ -42,6 +45,10 @@ async function carregarPacotes() {
 onMounted(() => {
   void carregarPacotes()
 })
+
+function comprar(pacote: BookingBundle) {
+  session.addPackageHours(String(pacote.id))
+}
 </script>
 
 <template>
@@ -112,7 +119,7 @@ onMounted(() => {
                       <span><strong>Preco:</strong> {{ pacote.price }}</span>
                     </div>
                     <Button label="Comprar" icon="pi pi-shopping-cart" severity="success" class="pacote-btn"
-                      @click="comprar(p)" />
+                      @click="comprar(pacote)" />
                   </div>
                 </div>
               </div>

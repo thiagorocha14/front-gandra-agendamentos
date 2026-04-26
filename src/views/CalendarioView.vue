@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { VueCal, type VueCalEvent } from 'vue-cal'
 import Card from 'primevue/card'
 import Message from 'primevue/message'
@@ -9,6 +10,11 @@ import { QuadraService } from '@/services/QuadraService'
 import type { Booking, Court } from '@/types/api'
 import { getApiErrorMessage } from '@/utils/apiError'
 import { fromBookingDateAndTime } from '@/utils/bookingFormat'
+import { useUserSession } from '@/composables/useUserSession'
+
+const router = useRouter()
+const session = useUserSession()
+const isAdmin = computed(() => session.userCategory.value === 'admin')
 
 const QUADRA_CLASSES = ['quadra-1', 'quadra-2', 'quadra-3', 'quadra-4'] as const
 
@@ -83,6 +89,14 @@ async function carregarCalendario() {
   }
 }
 
+function onCalendarEventClick(payload: { event: VueCalEvent }) {
+  if (session.userCategory.value !== 'admin') return
+  const rawId = payload.event.id
+  const id = rawId != null && rawId !== '' ? String(rawId) : ''
+  if (!id) return
+  void router.push({ name: 'admin-agendamento-detalhe', params: { id } })
+}
+
 onMounted(() => {
   void carregarCalendario()
 })
@@ -95,7 +109,7 @@ onMounted(() => {
         <template #title>Calendário</template>
         <template #subtitle>Visualização semanal dos horários e eventos.</template>
         <template #content>
-          <div class="cal-wrap">
+          <div class="cal-wrap" :class="{ 'cal-wrap--admin': isAdmin }">
             <Message v-if="loading && !loadError" severity="secondary" class="cal-msg" :closable="false">
               Carregando agendamentos…
             </Message>
@@ -105,6 +119,7 @@ onMounted(() => {
             </Message>
             <VueCal
               v-model:events="events"
+              :onEventClick="onCalendarEventClick"
               locale="pt-br"
               :views="['week', 'day']"
               view="day"
@@ -204,5 +219,9 @@ onMounted(() => {
 .vuecal-height :deep(.vuecal__event.booking-status--pending) {
   background: var(--p-secondary-500) !important;
   color: var(--p-surface-0) !important;
+}
+
+.cal-wrap--admin :deep(.vuecal__event) {
+  cursor: pointer;
 }
 </style>

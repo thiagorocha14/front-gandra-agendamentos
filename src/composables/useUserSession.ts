@@ -1,12 +1,20 @@
 import { computed, readonly, ref } from 'vue'
+import { AuthService } from '@/services/AuthService'
+import type { AuthResponse, AuthUser } from '@/types/auth'
+import {
+  loadUserSession,
+  saveUserSession,
+  type PersistedSession,
+} from '@/session/userSessionStorage'
 
-const STORAGE_KEY = 'gandra-user-session-v1'
 type UserCategory = 'admin' | 'user'
 
 const isLoggedIn = ref(false)
 const displayName = ref('')
 const hoursBalance = ref(0)
-const userCategory = ref<UserCategory>('admin')
+const userCategory = ref<UserCategory>('user')
+const accessToken = ref('')
+const user = ref<AuthUser | null>(null)
 
 let hydrated = false
 
@@ -14,59 +22,68 @@ const PACKAGE_HOURS: Record<string, number> = {
   basico: 8,
   plus: 12,
   trimestral: 36,
-};
+}
+
+function userTypeToCategory(userType: string): UserCategory {
+  const u = userType.toLowerCase()
+  if (u === 'admin' || u === 'administrator') return 'admin'
+  return 'user'
+}
+
+function applyPersistedSession(data: PersistedSession) {
+  isLoggedIn.value = true
+  accessToken.value = data.accessToken
+  user.value = {
+    id: data.user.id,
+    name: data.user.name,
+    email: data.user.email,
+    userType: data.user.userType,
+    phone: data.user.phone,
+  }
+  displayName.value = data.user.name.trim() || 'Aluno'
+  userCategory.value = userTypeToCategory(data.user.userType)
+  hoursBalance.value = Number.isFinite(data.hoursBalance) ? data.hoursBalance : 0
+}
 
 function hydrate() {
   if (hydrated || typeof localStorage === 'undefined') return
   hydrated = true
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return
-    const data = JSON.parse(raw) as {
-      isLoggedIn?: boolean
-      displayName?: string
-      hoursBalance?: number
-      userCategory?: UserCategory
-    }
-    isLoggedIn.value = !!data.isLoggedIn
-    displayName.value = typeof data.displayName === 'string' ? data.displayName : ''
-    hoursBalance.value = Number.isFinite(data.hoursBalance) ? Number(data.hoursBalance) : 0
-    userCategory.value = data.userCategory === 'admin' ? 'admin' : 'user'
-  } catch {
-    /* ignore */
-  }
+  const data = loadUserSession()
+  if (!data) return
+  applyPersistedSession(data)
 }
 
 function persist() {
   if (typeof localStorage === 'undefined') return
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      isLoggedIn: isLoggedIn.value,
-      displayName: displayName.value,
-      hoursBalance: hoursBalance.value,
-      userCategory: userCategory.value,
-    }),
-  )
+  if (!isLoggedIn.value || !user.value || !accessToken.value) return
+  saveUserSession({
+    accessToken: accessToken.value,
+    user: {
+      id: user.value.id,
+      name: user.value.name,
+      email: user.value.email,
+      userType: user.value.userType,
+      phone: user.value.phone,
+    },
+    hoursBalance: hoursBalance.value,
+  })
 }
 
 export function useUserSession() {
   hydrate()
 
-  function login(name: string, category?: UserCategory) {
+  /** Persiste token e usuário após login ou cadastro bem-sucedido. */
+  function setFromAuthResponse(response: AuthResponse) {
     isLoggedIn.value = true
-    const normalizedName = name.trim() || 'Aluno'
-    displayName.value = normalizedName
-    userCategory.value =
-      category ?? (normalizedName.toLowerCase() === 'admin' ? 'admin' : 'user')
+    accessToken.value = response.accessToken
+    user.value = { ...response.user }
+    displayName.value = response.user.name.trim() || 'Aluno'
+    userCategory.value = userTypeToCategory(response.user.userType)
     persist()
   }
 
   function logout() {
-    isLoggedIn.value = false
-    displayName.value = ''
-    userCategory.value = 'user'
-    persist()
+    AuthService.logOut()
   }
 
   /** Credita horas ao comprar um pacote (ids: basico, plus, trimestral). */
@@ -79,17 +96,17 @@ export function useUserSession() {
 
   const hoursBadge = computed(() =>
     hoursBalance.value > 0 ? String(hoursBalance.value) : '8h',
-  );
-
-  console.log(userCategory.value);
+  )
 
   return {
     isLoggedIn: readonly(isLoggedIn),
     displayName: readonly(displayName),
     hoursBalance: readonly(hoursBalance),
     userCategory: readonly(userCategory),
+    accessToken: readonly(accessToken),
+    user: readonly(user),
     hoursBadge,
-    login,
+    setFromAuthResponse,
     logout,
     addPackageHours,
   }
