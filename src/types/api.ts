@@ -3,6 +3,8 @@ export interface Court {
   id: number
   name: string
   active: boolean
+  day_price: number
+  night_price: number
 }
 
 /** Corpo de POST /bookings */

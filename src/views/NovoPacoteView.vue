@@ -41,22 +41,22 @@ function limparFormulario() {
 
 function validarFormulario(): string | null {
   const nome = form.name.trim()
-  if (!nome) return 'O nome do pacote e obrigatorio.'
-  if (nome.length > 50) return 'O nome deve ter no maximo 50 caracteres.'
+  if (!nome) return 'O nome do pacote é obrigatório.'
+  if (nome.length > 50) return 'O nome deve ter no máximo 50 caracteres.'
 
   const descricao = form.description.trim()
-  if (!descricao) return 'A descricao do pacote e obrigatoria.'
-  if (descricao.length > 300) return 'A descricao deve ter no maximo 300 caracteres.'
+  if (!descricao) return 'A descrição do pacote e obrigatória.'
+  if (descricao.length > 300) return 'A descrição deve ter no máximo 300 caracteres.'
 
   if (!Number.isInteger(form.totalHours) || (form.totalHours ?? 0) < 1) {
-    return 'As horas totais devem ser um numero inteiro maior ou igual a 1.'
+    return 'As horas totais devem ser um número inteiro maior ou igual a 1.'
   }
 
-  if (!form.price.trim()) return 'O preco e obrigatorio.'
+  if (!form.price.trim()) return 'O preço é obrigatório.'
 
   if (!form.coverImage) return 'Selecione uma imagem de capa.'
   if (!form.coverImage.type.startsWith('image/')) {
-    return 'Arquivo invalido: selecione um arquivo de imagem.'
+    return 'Arquivo inválido: selecione um arquivo de imagem.'
   }
 
   return null
@@ -69,7 +69,7 @@ function onCoverImageChange(event: Event) {
   form.coverImage = arquivo
   if (arquivo && !arquivo.type.startsWith('image/')) {
     form.coverImage = null
-    submitError.value = 'Arquivo invalido: selecione um arquivo de imagem.'
+    submitError.value = 'Arquivo inválido: selecione um arquivo de imagem.'
     target.value = ''
   }
 }
@@ -100,7 +100,7 @@ async function enviarPacote() {
     limparFormulario()
   } catch {
     submitError.value =
-      'Nao foi possivel criar o pacote agora. Verifique os dados e tente novamente.'
+      'Não foi possível criar o pacote agora. Verifique os dados e tente novamente.'
   } finally {
     submitting.value = false
   }
@@ -145,7 +145,7 @@ async function enviarPacote() {
                 maxlength="300"
                 auto-resize
               />
-              <label for="pacote-description">Descricao</label>
+              <label for="pacote-description">Descrição</label>
             </FloatLabel>
 
             <FloatLabel>

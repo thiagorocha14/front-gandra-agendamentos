@@ -12,6 +12,7 @@ import { QuadraService } from '@/services/QuadraService'
 import type { Court } from '@/types/api'
 import { getApiErrorMessage } from '@/utils/apiError'
 import { addMinutesToDate, toBookingDateString, toTimeHHmm } from '@/utils/bookingFormat'
+import { useUserSession } from '@/composables/useUserSession'
 
 const VALOR_HORA_REAIS = 80
 
@@ -42,8 +43,9 @@ const courts = ref<Court[]>([])
 const courtsLoading = ref(true)
 const courtsLoadError = ref('')
 
-const guestName = ref('')
-const phone = ref('')
+const loggedUser = useUserSession().user?.value
+const guestName = ref(loggedUser?.name ?? '')
+const phone = ref(loggedUser?.phone ?? '')
 const courtId = ref<number | null>(null)
 const bookingDate = ref<Date | null>(null)
 const startHour = ref<number | null>(null)
@@ -91,7 +93,20 @@ const textoInformativoResumo = computed(() => {
     style: 'currency',
     currency: 'BRL',
   }).format(valorEstimadoReais.value)
-  return `Quadra: ${quadraTxt}. Data: ${fmtData}. Início: ${fmtHora(horarioInicioDate.value)}. Término: ${fmtHora(horarioFim.value)}. Valor: ${valorFmt} (R$ ${VALOR_HORA_REAIS.toFixed(2).replace('.', ',')} por hora).`
+
+  debugger;
+  const quadraSelecionada = courts.value.find((c) => c.id === courtId.value)
+
+  const tempoDeDia = horarioInicioDate.value.getHours() < 18 ? 18 - horarioInicioDate.value.getHours() : 0
+  const tempoDeNoite = horarioFim.value.getHours() > 18 ? horarioFim.value.getHours() - 18 : 0
+  const valorDia = tempoDeDia * quadraSelecionada?.day_price
+  const valorNoite = tempoDeNoite * quadraSelecionada?.night_price
+  const valorTotal = valorDia + valorNoite
+  const valorTotalFmt = new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(valorTotal)
+  return `Quadra: ${quadraTxt}. Data: ${fmtData}. Início: ${fmtHora(horarioInicioDate.value)}. Término: ${fmtHora(horarioFim.value)}. Valor: ${valorTotalFmt} (R$ ${VALOR_HORA_REAIS.toFixed(2).replace('.', ',')} por hora).`
 })
 
 onMounted(async () => {

@@ -116,7 +116,7 @@ function comprar(pacote: BookingBundle) {
                   <div class="pacotes-actions">
                     <div class="pacote-meta">
                       <span><strong>Horas:</strong> {{ pacote.totalHours }}</span>
-                      <span><strong>Preco:</strong> {{ pacote.price }}</span>
+                      <span><strong>Preço:</strong> {{ pacote.price }}</span>
                     </div>
                     <Button label="Comprar" icon="pi pi-shopping-cart" severity="success" class="pacote-btn"
                       @click="comprar(pacote)" />
