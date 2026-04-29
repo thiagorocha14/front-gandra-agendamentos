@@ -52,6 +52,12 @@ const navItems = [
     name: 'novo-pacote',
     adminOnly: true,
   },
+  {
+    label: 'Usuários',
+    to: '/admin/usuarios',
+    name: 'admin-usuarios',
+    adminOnly: true,
+  },
 ] as const
 const visibleNavItems = computed(() =>
   navItems.filter(

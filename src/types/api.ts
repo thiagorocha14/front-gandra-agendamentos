@@ -58,3 +58,13 @@ export interface CreateBookingBundleInput {
   active?: boolean
   coverImage: File
 }
+
+/** Entrada para atualização (PATCH); imagem opcional se mantiver a atual */
+export interface UpdateBookingBundleInput {
+  name: string
+  description: string
+  totalHours: number
+  price: string
+  active?: boolean
+  coverImage?: File | null
+}

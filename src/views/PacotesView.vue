@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Card from 'primevue/card'
+import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
 import Skeleton from 'primevue/skeleton'
 import Tag from 'primevue/tag'
@@ -10,13 +12,20 @@ import { useUserSession } from '@/composables/useUserSession'
 import { PacotesAgendamentosService } from '@/services/PacotesAgendamentosService'
 import type { BookingBundle } from '@/types/api'
 
+const router = useRouter()
 const session = useUserSession()
 
 const loading = ref(true)
 const loadError = ref('')
 const pacotes = ref<BookingBundle[]>([])
 
+const confirmDesativarVisible = ref(false)
+const pacoteParaDesativar = ref<BookingBundle | null>(null)
+const desativando = ref(false)
+const desativarError = ref('')
+
 const hasData = computed(() => pacotes.value.length > 0)
+const isAdmin = computed(() => session.userCategory.value === 'admin')
 
 function coverImageUrl(coverImage: string): string {
   if (!coverImage.trim()) return ''
@@ -49,6 +58,39 @@ onMounted(() => {
 function comprar(pacote: BookingBundle) {
   session.addPackageHours(String(pacote.id))
 }
+
+function irEditarPacote(pacote: BookingBundle) {
+  void router.push({ name: 'editar-pacote', params: { id: String(pacote.id) } })
+}
+
+function abrirConfirmarDesativar(pacote: BookingBundle) {
+  desativarError.value = ''
+  pacoteParaDesativar.value = pacote
+  confirmDesativarVisible.value = true
+}
+
+function fecharConfirmarDesativar() {
+  if (desativando.value) return
+  confirmDesativarVisible.value = false
+  pacoteParaDesativar.value = null
+  desativarError.value = ''
+}
+
+async function confirmarDesativar() {
+  if (!pacoteParaDesativar.value) return
+  desativando.value = true
+  desativarError.value = ''
+  try {
+    await PacotesAgendamentosService.desativarPacote(pacoteParaDesativar.value.id)
+    confirmDesativarVisible.value = false
+    pacoteParaDesativar.value = null
+    await carregarPacotes()
+  } catch {
+    desativarError.value = 'Não foi possível desativar o pacote. Tente novamente.'
+  } finally {
+    desativando.value = false
+  }
+}
 </script>
 
 <template>
@@ -60,6 +102,41 @@ function comprar(pacote: BookingBundle) {
           Confira os pacotes disponiveis e escolha o plano ideal para sua rotina.
         </p>
       </header>
+
+      <Dialog
+        v-model:visible="confirmDesativarVisible"
+        modal
+        header="Desativar pacote"
+        class="pacotes-dialog"
+        :style="{ width: 'min(22rem, 100vw)' }"
+        :closable="!desativando"
+        :dismissable-mask="!desativando"
+        @hide="fecharConfirmarDesativar"
+      >
+        <p class="pacotes-dialog__text">
+          Deseja realmente desativar o pacote
+          <strong v-if="pacoteParaDesativar">{{ pacoteParaDesativar.name }}</strong
+          >? Ele deixará de aparecer como disponível para compra.
+        </p>
+        <Message v-if="desativarError" severity="error" class="pacotes-dialog__err" :closable="false">
+          {{ desativarError }}
+        </Message>
+        <template #footer>
+          <Button
+            label="Cancelar"
+            severity="secondary"
+            text
+            :disabled="desativando"
+            @click="fecharConfirmarDesativar"
+          />
+          <Button
+            label="Desativar"
+            severity="danger"
+            :loading="desativando"
+            @click="confirmarDesativar"
+          />
+        </template>
+      </Dialog>
 
       <Message v-if="loadError" severity="error" class="pacotes-page__msg" :closable="false">
         {{ loadError }}
@@ -90,10 +167,19 @@ function comprar(pacote: BookingBundle) {
 
       <ul v-else class="pacotes-list" role="list">
         <li v-for="pacote in pacotes" :key="pacote.id" class="pacotes-list__item">
-          <Card class="pacote-card">
+          <Card
+            class="pacote-card"
+            :class="{ 'pacote-card--inactive': !pacote.active }"
+          >
             <template #content>
               <div class="pacote-grid">
-                <div class="pacote-media">
+                <div
+                  class="pacote-media"
+                  :class="{ 'pacote-media--inactive': !pacote.active }"
+                >
+                  <span v-if="!pacote.active" class="pacote-inactive-ribbon" aria-hidden="true"
+                    >Desativado</span
+                  >
                   <img
                     v-if="coverImageUrl(pacote.coverImage)"
                     :src="coverImageUrl(pacote.coverImage)"
@@ -118,8 +204,33 @@ function comprar(pacote: BookingBundle) {
                       <span><strong>Horas:</strong> {{ pacote.totalHours }}</span>
                       <span><strong>Preço:</strong> {{ pacote.price }}</span>
                     </div>
-                    <Button label="Comprar" icon="pi pi-shopping-cart" severity="success" class="pacote-btn"
-                      @click="comprar(pacote)" />
+                    <div v-if="isAdmin" class="pacote-admin-actions">
+                      <Button
+                        label="Editar"
+                        icon="pi pi-pencil"
+                        severity="secondary"
+                        outlined
+                        class="pacote-btn pacote-btn--admin"
+                        @click="irEditarPacote(pacote)"
+                      />
+                      <Button
+                        v-if="pacote.active"
+                        label="Desativar"
+                        icon="pi pi-ban"
+                        severity="danger"
+                        outlined
+                        class="pacote-btn pacote-btn--admin"
+                        @click="abrirConfirmarDesativar(pacote)"
+                      />
+                    </div>
+                    <Button
+                      v-else
+                      label="Comprar"
+                      icon="pi pi-shopping-cart"
+                      severity="success"
+                      class="pacote-btn"
+                      @click="comprar(pacote)"
+                    />
                   </div>
                 </div>
               </div>
@@ -198,6 +309,10 @@ function comprar(pacote: BookingBundle) {
     0 2px 4px -2px color-mix(in srgb, var(--p-primary-950) 8%, transparent);
 }
 
+.pacote-card--inactive {
+  opacity: 0.97;
+}
+
 .pacote-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -216,6 +331,28 @@ function comprar(pacote: BookingBundle) {
   position: relative;
   min-height: clamp(12rem, 38vw, 16rem);
   background: var(--p-surface-200);
+}
+
+.pacote-media--inactive .pacote-image,
+.pacote-media--inactive .pacote-placeholder {
+  filter: grayscale(1);
+}
+
+.pacote-inactive-ribbon {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 1;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--p-surface-0);
+  background: color-mix(in srgb, var(--p-surface-900) 88%, transparent);
+  border-radius: var(--p-content-border-radius);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--p-primary-950) 25%, transparent);
+  pointer-events: none;
 }
 
 @media (min-width: 768px) {
@@ -290,8 +427,21 @@ function comprar(pacote: BookingBundle) {
   min-width: min(100%, 11rem);
 }
 
+.pacote-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.pacote-btn--admin {
+  min-width: auto;
+}
+
 .pacotes-actions {
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
@@ -309,5 +459,25 @@ function comprar(pacote: BookingBundle) {
   .pacote-btn {
     width: 100%;
   }
+
+  .pacote-admin-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pacote-btn--admin {
+    width: 100%;
+  }
+}
+
+.pacotes-dialog__text {
+  margin: 0 0 1rem;
+  line-height: 1.55;
+  color: var(--p-surface-700);
+}
+
+.pacotes-dialog__err {
+  margin-bottom: 0.75rem;
 }
 </style>

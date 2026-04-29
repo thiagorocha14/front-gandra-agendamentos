@@ -75,7 +75,7 @@ async function submit() {
       <Message v-if="errorMessage" severity="error" :closable="false" class="login-dialog__msg">
         {{ errorMessage }}
       </Message>
-      <FloatLabel class="login-dialog__field">
+      <FloatLabel variant="in" class="login-dialog__field">
         <InputText
           id="login-dialog-email"
           v-model="email"
@@ -88,7 +88,7 @@ async function submit() {
         />
         <label for="login-dialog-email">E-mail</label>
       </FloatLabel>
-      <FloatLabel class="login-dialog__field login-dialog__field--password">
+      <FloatLabel variant="in" class="login-dialog__field login-dialog__field--password">
         <Password
           id="login-dialog-senha"
           v-model="password"

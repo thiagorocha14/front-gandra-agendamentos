@@ -43,9 +43,9 @@ const courts = ref<Court[]>([])
 const courtsLoading = ref(true)
 const courtsLoadError = ref('')
 
-const loggedUser = useUserSession().user?.value
-const guestName = ref(loggedUser?.name ?? '')
-const phone = ref(loggedUser?.phone ?? '')
+const { user } = useUserSession()
+const guestName = ref(user.value?.name ?? '')
+const phone = ref(user.value?.phone ?? '')
 const courtId = ref<number | null>(null)
 const bookingDate = ref<Date | null>(null)
 const startHour = ref<number | null>(null)
@@ -152,6 +152,7 @@ async function enviar() {
     guestName: guestName.value.trim().slice(0, 100),
     price: precoCalculado,
     ...(phone.value.trim() ? { phone: phone.value.trim().slice(0, 30) } : {}),
+    ...(user.value ? { userId: String(user.value.id) } : {}),
   }
 
   submitting.value = true
@@ -193,7 +194,7 @@ async function enviar() {
               {{ submitSuccess }}
             </Message>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <InputText
                 id="nome"
                 v-model="guestName"
@@ -205,7 +206,7 @@ async function enviar() {
               <label for="nome">Nome</label>
             </FloatLabel>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <InputText
                 id="telefone"
                 v-model="phone"
@@ -218,7 +219,7 @@ async function enviar() {
               <label for="telefone">Telefone</label>
             </FloatLabel>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <Select
                 v-model="courtId"
                 inputId="campo-quadra"
@@ -233,7 +234,7 @@ async function enviar() {
               <label for="campo-quadra">Quadra</label>
             </FloatLabel>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <DatePicker
                 id="data-reserva"
                 v-model="bookingDate"
@@ -246,7 +247,7 @@ async function enviar() {
               <label for="data-reserva">Data</label>
             </FloatLabel>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <Select
                 v-model="startHour"
                 inputId="hora-inicio"
@@ -259,7 +260,7 @@ async function enviar() {
               <label for="hora-inicio">Horário</label>
             </FloatLabel>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <Select
                 v-model="durationMinutes"
                 input-id="campo-duracao"

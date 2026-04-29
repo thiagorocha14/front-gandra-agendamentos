@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Card from 'primevue/card'
 import Checkbox from 'primevue/checkbox'
@@ -8,11 +8,21 @@ import FloatLabel from 'primevue/floatlabel'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
+import Skeleton from 'primevue/skeleton'
 import Textarea from 'primevue/textarea'
+import { API_BASE_URL } from '@/api/apiClient'
 import { PacotesAgendamentosService } from '@/services/PacotesAgendamentosService'
-import type { CreateBookingBundleInput } from '@/types/api'
+import type { CreateBookingBundleInput, UpdateBookingBundleInput } from '@/types/api'
 
 const router = useRouter()
+const route = useRoute()
+
+const bundleId = computed(() => {
+  const raw = route.params.id
+  return typeof raw === 'string' && raw.length > 0 ? raw : undefined
+})
+
+const isEditMode = computed(() => Boolean(bundleId.value))
 
 const form = reactive({
   name: '',
@@ -26,8 +36,21 @@ const form = reactive({
 const submitting = ref(false)
 const submitError = ref('')
 const submitSuccess = ref('')
+const loadingBundle = ref(false)
+const loadBundleError = ref('')
+const existingCoverImagePath = ref('')
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
+
+function coverImageUrl(coverImage: string): string {
+  if (!coverImage.trim()) return ''
+  if (/^https?:\/\//i.test(coverImage)) return coverImage
+  if (coverImage.startsWith('/uploads/')) {
+    const base = API_BASE_URL.replace(/\/$/, '')
+    return `${base}${coverImage}`
+  }
+  return coverImage
+}
 
 function limparFormulario() {
   form.name = ''
@@ -36,6 +59,7 @@ function limparFormulario() {
   form.price = ''
   form.active = true
   form.coverImage = null
+  existingCoverImagePath.value = ''
   if (fileInputRef.value) fileInputRef.value.value = ''
 }
 
@@ -54,8 +78,12 @@ function validarFormulario(): string | null {
 
   if (!form.price.trim()) return 'O preço é obrigatório.'
 
-  if (!form.coverImage) return 'Selecione uma imagem de capa.'
-  if (!form.coverImage.type.startsWith('image/')) {
+  if (!isEditMode.value) {
+    if (!form.coverImage) return 'Selecione uma imagem de capa.'
+    if (!form.coverImage.type.startsWith('image/')) {
+      return 'Arquivo inválido: selecione um arquivo de imagem.'
+    }
+  } else if (form.coverImage && !form.coverImage.type.startsWith('image/')) {
     return 'Arquivo inválido: selecione um arquivo de imagem.'
   }
 
@@ -74,6 +102,32 @@ function onCoverImageChange(event: Event) {
   }
 }
 
+async function carregarPacote() {
+  if (!bundleId.value) return
+  loadingBundle.value = true
+  loadBundleError.value = ''
+  try {
+    const p = await PacotesAgendamentosService.buscarPacotePorId(bundleId.value)
+    form.name = p.name
+    form.description = p.description
+    form.totalHours = p.totalHours
+    form.price = p.price
+    form.active = p.active
+    form.coverImage = null
+    existingCoverImagePath.value = p.coverImage ?? ''
+    if (fileInputRef.value) fileInputRef.value.value = ''
+  } catch {
+    loadBundleError.value =
+      'Não foi possível carregar o pacote. Verifique o link ou tente novamente.'
+  } finally {
+    loadingBundle.value = false
+  }
+}
+
+onMounted(() => {
+  void carregarPacote()
+})
+
 async function enviarPacote() {
   submitError.value = ''
   submitSuccess.value = ''
@@ -84,23 +138,40 @@ async function enviarPacote() {
     return
   }
 
-  const payload: CreateBookingBundleInput = {
-    name: form.name.trim(),
-    description: form.description.trim(),
-    totalHours: form.totalHours!,
-    price: form.price.trim(),
-    active: form.active,
-    coverImage: form.coverImage!,
-  }
-
   submitting.value = true
   try {
-    await PacotesAgendamentosService.criarPacote(payload)
-    submitSuccess.value = 'Pacote criado com sucesso.'
-    limparFormulario()
+    if (isEditMode.value && bundleId.value) {
+      const payload: UpdateBookingBundleInput = {
+        name: form.name.trim(),
+        description: form.description.trim(),
+        totalHours: form.totalHours!,
+        price: form.price.trim(),
+        active: form.active,
+        coverImage: form.coverImage ?? undefined,
+      }
+      await PacotesAgendamentosService.atualizarPacote(bundleId.value, payload)
+      submitSuccess.value = 'Pacote atualizado com sucesso.'
+      existingCoverImagePath.value = ''
+      form.coverImage = null
+      if (fileInputRef.value) fileInputRef.value.value = ''
+      await carregarPacote()
+    } else {
+      const payload: CreateBookingBundleInput = {
+        name: form.name.trim(),
+        description: form.description.trim(),
+        totalHours: form.totalHours!,
+        price: form.price.trim(),
+        active: form.active,
+        coverImage: form.coverImage!,
+      }
+      await PacotesAgendamentosService.criarPacote(payload)
+      submitSuccess.value = 'Pacote criado com sucesso.'
+      limparFormulario()
+    }
   } catch {
-    submitError.value =
-      'Não foi possível criar o pacote agora. Verifique os dados e tente novamente.'
+    submitError.value = isEditMode.value
+      ? 'Não foi possível atualizar o pacote agora. Verifique os dados e tente novamente.'
+      : 'Não foi possível criar o pacote agora. Verifique os dados e tente novamente.'
   } finally {
     submitting.value = false
   }
@@ -111,10 +182,38 @@ async function enviarPacote() {
   <div class="page">
     <main class="page__main">
       <Card class="form-card">
-        <template #title>Novo Pacote de Agendamento</template>
-        <template #subtitle>Cadastre um novo pacote para disponibilizar na vitrine.</template>
+        <template #title>{{
+          isEditMode ? 'Editar Pacote de Agendamento' : 'Novo Pacote de Agendamento'
+        }}</template>
+        <template #subtitle>{{
+          isEditMode
+            ? 'Altere os dados do pacote e salve as mudanças.'
+            : 'Cadastre um novo pacote para disponibilizar na vitrine.'
+        }}</template>
         <template #content>
-          <div class="form-grid">
+          <div v-if="loadingBundle" class="form-grid">
+            <Skeleton height="2.5rem" />
+            <Skeleton height="6rem" />
+            <Skeleton height="2.5rem" />
+            <Skeleton height="2.5rem" />
+          </div>
+
+          <Message
+            v-else-if="loadBundleError"
+            severity="error"
+            class="form-msg"
+            :closable="false"
+          >
+            {{ loadBundleError }}
+            <Button
+              label="Voltar para pacotes"
+              class="form-msg__btn"
+              text
+              @click="router.push({ name: 'pacotes' })"
+            />
+          </Message>
+
+          <div v-else class="form-grid">
             <Message v-if="submitError" severity="error" closable @close="submitError = ''">
               {{ submitError }}
             </Message>
@@ -123,7 +222,7 @@ async function enviarPacote() {
               {{ submitSuccess }}
             </Message>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <InputText
                 id="pacote-name"
                 v-model="form.name"
@@ -135,7 +234,7 @@ async function enviarPacote() {
               <label for="pacote-name">Nome</label>
             </FloatLabel>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <Textarea
                 id="pacote-description"
                 v-model="form.description"
@@ -148,7 +247,7 @@ async function enviarPacote() {
               <label for="pacote-description">Descrição</label>
             </FloatLabel>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <InputNumber
                 input-id="pacote-total-hours"
                 v-model="form.totalHours"
@@ -162,7 +261,7 @@ async function enviarPacote() {
               <label for="pacote-total-hours">Horas totais</label>
             </FloatLabel>
 
-            <FloatLabel>
+            <FloatLabel variant="in">
               <InputText
                 id="pacote-price"
                 v-model="form.price"
@@ -180,7 +279,20 @@ async function enviarPacote() {
             </div>
 
             <div class="form-file">
-              <label for="pacote-cover" class="form-file__label">Imagem de capa</label>
+              <label for="pacote-cover" class="form-file__label">
+                Imagem de capa{{ isEditMode ? ' (opcional — mantém a atual se vazio)' : '' }}
+              </label>
+              <div
+                v-if="isEditMode && existingCoverImagePath && coverImageUrl(existingCoverImagePath)"
+                class="form-file__preview-wrap"
+              >
+                <p class="form-file__preview-label">Imagem atual</p>
+                <img
+                  :src="coverImageUrl(existingCoverImagePath)"
+                  alt="Capa atual do pacote"
+                  class="form-file__preview-img"
+                />
+              </div>
               <input
                 id="pacote-cover"
                 ref="fileInputRef"
@@ -190,7 +302,7 @@ async function enviarPacote() {
                 @change="onCoverImageChange"
               />
               <small v-if="form.coverImage" class="form-file__hint">
-                Arquivo selecionado: {{ form.coverImage.name }}
+                Novo arquivo: {{ form.coverImage.name }}
               </small>
             </div>
 
@@ -201,7 +313,11 @@ async function enviarPacote() {
                 text
                 @click="router.push({ name: 'pacotes' })"
               />
-              <Button label="Criar pacote" :loading="submitting" @click="enviarPacote" />
+              <Button
+                :label="isEditMode ? 'Salvar alterações' : 'Criar pacote'"
+                :loading="submitting"
+                @click="enviarPacote"
+              />
             </div>
           </div>
         </template>
@@ -227,6 +343,14 @@ async function enviarPacote() {
   width: 100%;
   margin: 0 auto;
   box-sizing: border-box;
+}
+
+.form-msg {
+  margin-bottom: 0.5rem;
+}
+
+.form-msg__btn {
+  margin-left: 0.5rem;
 }
 
 .form-card {
@@ -282,6 +406,27 @@ async function enviarPacote() {
 
 .form-file__hint {
   color: var(--p-surface-600);
+}
+
+.form-file__preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-file__preview-label {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--p-surface-600);
+}
+
+.form-file__preview-img {
+  max-width: 100%;
+  max-height: 12rem;
+  object-fit: contain;
+  border-radius: var(--p-content-border-radius);
+  border: 1px solid var(--p-surface-300);
+  background: var(--p-surface-100);
 }
 
 .form-actions {

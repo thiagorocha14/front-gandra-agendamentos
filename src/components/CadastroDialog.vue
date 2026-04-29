@@ -93,7 +93,7 @@ async function submit() {
       <Message v-if="errorMessage" severity="error" :closable="false" class="cadastro-dialog__msg">
         {{ errorMessage }}
       </Message>
-      <FloatLabel class="cadastro-dialog__field">
+      <FloatLabel variant="in" class="cadastro-dialog__field">
         <InputText
           id="cadastro-dialog-nome"
           v-model="form.name"
@@ -104,7 +104,7 @@ async function submit() {
         />
         <label for="cadastro-dialog-nome">Nome</label>
       </FloatLabel>
-      <FloatLabel class="cadastro-dialog__field">
+      <FloatLabel variant="in" class="cadastro-dialog__field">
         <InputText
           id="cadastro-dialog-email"
           v-model="form.email"
@@ -116,7 +116,7 @@ async function submit() {
         />
         <label for="cadastro-dialog-email">E-mail</label>
       </FloatLabel>
-      <FloatLabel class="cadastro-dialog__field">
+      <FloatLabel variant="in" class="cadastro-dialog__field">
         <InputText
           id="cadastro-dialog-telefone"
           v-model="form.phone"
@@ -127,7 +127,7 @@ async function submit() {
         />
         <label for="cadastro-dialog-telefone">Telefone (opcional)</label>
       </FloatLabel>
-      <FloatLabel class="cadastro-dialog__field cadastro-dialog__field--password">
+      <FloatLabel variant="in" class="cadastro-dialog__field cadastro-dialog__field--password">
         <Password
           id="cadastro-dialog-senha"
           v-model="form.password"
