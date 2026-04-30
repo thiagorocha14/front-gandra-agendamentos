@@ -1,35 +1,105 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { VueCal, type VueCalEvent } from 'vue-cal'
 import Card from 'primevue/card'
+import Message from 'primevue/message'
+import Button from 'primevue/button'
+import { AgendamentoService } from '@/services/AgendamentoService'
+import { QuadraService } from '@/services/QuadraService'
+import type { Booking, Court } from '@/types/api'
+import { getApiErrorMessage } from '@/utils/apiError'
+import { fromBookingDateAndTime } from '@/utils/bookingFormat'
+import { useUserSession } from '@/composables/useUserSession'
 
-function exemploEventos(): VueCalEvent[] {
-  const inicio = new Date()
-  inicio.setHours(9, 0, 0, 0)
-  const fim = new Date(inicio)
-  fim.setHours(10, 30, 0, 0)
-  const tarde = new Date(inicio)
-  tarde.setHours(15, 0, 0, 0)
-  const tardeFim = new Date(tarde)
-  tardeFim.setHours(16, 0, 0, 0)
-  return [
-    { start: inicio, end: fim, title: 'Reserva — exemplo', schedule: 1 },
-    { start: tarde, end: tardeFim, title: 'Aula — exemplo', schedule: 2 },
-  ]
+const router = useRouter()
+const session = useUserSession()
+const isAdmin = computed(() => session.userCategory.value === 'admin')
+
+const QUADRA_CLASSES = ['quadra-1', 'quadra-2', 'quadra-3', 'quadra-4'] as const
+
+const events = ref<VueCalEvent[]>([])
+const schedules = ref<{ id: number; class: string; label: string }[]>([])
+
+const loadError = ref('')
+const loading = ref(true)
+
+function courtClassForIndex(index: number): string {
+  return QUADRA_CLASSES[index % QUADRA_CLASSES.length]!
 }
 
-function exemploSchedules() {
-  return [
-    { id: 1, class: 'quadra-1', label: 'Quadra 1' },
-    { id: 2, class: 'quadra-2', label: 'Quadra 2' },
-    { id: 3, class: 'quadra-3', label: 'Quadra 3' },
-    { id: 4, class: 'quadra-4', label: 'Quadra 4' },
-  ]
+function schedulesFromCourts(courts: Court[]): { id: number; class: string; label: string }[] {
+  return courts.map((c, i) => ({
+    id: c.id,
+    class: courtClassForIndex(i),
+    label: c.name,
+  }))
 }
 
-const events = ref<VueCalEvent[]>(exemploEventos())
-const schedules = ref(exemploSchedules())
+function bookingToEvent(
+  booking: Booking,
+  courtNameById: Map<number, string>,
+): VueCalEvent | null {
+  try {
+    const start = fromBookingDateAndTime(booking.bookingDate, booking.startTime)
+    const end = fromBookingDateAndTime(booking.bookingDate, booking.endTime)
+    if (!(start.getTime() < end.getTime())) return null
+    const nome = booking.guestName?.trim() || 'Reserva'
+    const quadra = courtNameById.get(booking.courtId) ?? `Quadra #${booking.courtId}`
+    return {
+      id: booking.id,
+      start,
+      end,
+      title: `${nome} — ${quadra}`,
+      schedule: booking.courtId,
+      ...(booking.status === 'pending' ? { class: 'booking-status--pending' } : {}),
+      draggable: false,
+      resizable: false,
+      deletable: false,
+    }
+  } catch {
+    return null
+  }
+}
 
+async function carregarCalendario() {
+  loadError.value = ''
+  loading.value = true
+  try {
+    const [courtsRaw, bookings] = await Promise.all([
+      QuadraService.getQuadras(),
+      AgendamentoService.buscarAgendamentos(),
+    ])
+
+    const courtIdsInBookings = new Set(bookings.map((b) => b.courtId))
+    const courts = courtsRaw.filter((c) => c.active || courtIdsInBookings.has(c.id))
+
+    schedules.value = schedulesFromCourts(courts)
+    const courtNameById = new Map(courts.map((c) => [c.id, c.name]))
+
+    events.value = bookings
+      .map((b) => bookingToEvent(b, courtNameById))
+      .filter((e): e is VueCalEvent => e != null)
+  } catch (e) {
+    loadError.value = getApiErrorMessage(e)
+    events.value = []
+    schedules.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+function onCalendarEventClick(payload: { event: VueCalEvent }) {
+  if (session.userCategory.value !== 'admin') return
+  const rawId = payload.event.id
+  const id = rawId != null && rawId !== '' ? String(rawId) : ''
+  if (!id) return
+  void router.push({ name: 'admin-agendamento-detalhe', params: { id } })
+}
+
+onMounted(() => {
+  void carregarCalendario()
+})
 </script>
 
 <template>
@@ -39,11 +109,32 @@ const schedules = ref(exemploSchedules())
         <template #title>Calendário</template>
         <template #subtitle>Visualização semanal dos horários e eventos.</template>
         <template #content>
-          <div class="cal-wrap">
-            <VueCal v-model:events="events" locale="pt-br" :views="['week', 'day']" view="day" :time="true"
-              :views-bar="true" :today-button="true" :twelve-hour="false" :time-from="7 * 60" :time-to="22 * 60"
-              :time-step="30" :time-cell-height="25" :start-week-on-sunday="true" :schedules="schedules"
-              class="vuecal-height" />
+          <div class="cal-wrap" :class="{ 'cal-wrap--admin': isAdmin }">
+            <Message v-if="loading && !loadError" severity="secondary" class="cal-msg" :closable="false">
+              Carregando agendamentos…
+            </Message>
+            <Message v-if="loadError" severity="error" class="cal-msg" :closable="false">
+              {{ loadError }}
+              <Button label="Tentar novamente" class="cal-retry" text @click="carregarCalendario" />
+            </Message>
+            <VueCal
+              v-model:events="events"
+              :onEventClick="onCalendarEventClick"
+              locale="pt-br"
+              :views="['week', 'day']"
+              view="day"
+              :time="true"
+              :views-bar="true"
+              :today-button="true"
+              :twelve-hour="false"
+              :time-from="7 * 60"
+              :time-to="22 * 60"
+              :time-step="30"
+              :time-cell-height="25"
+              :start-week-on-sunday="true"
+              :schedules="schedules"
+              class="vuecal-height"
+            />
           </div>
         </template>
       </Card>
@@ -95,6 +186,15 @@ const schedules = ref(exemploSchedules())
   -webkit-overflow-scrolling: touch;
 }
 
+.cal-msg {
+  margin-bottom: 0.75rem;
+}
+
+.cal-retry {
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
 .cal-gandra {
   min-width: min(100%, 520px);
   --vuecal-primary-color: var(--p-primary-500);
@@ -110,5 +210,18 @@ const schedules = ref(exemploSchedules())
 
 :deep(.p-card-subtitle) {
   color: var(--p-surface-600);
+}
+
+/**
+ * Pendente: amarelo com croma/luminosidade próximos ao verde primário do tema
+ * (verde ≈ oklch(0.45 0.12 150); amarelo no mesmo “peso” cromático).
+ */
+.vuecal-height :deep(.vuecal__event.booking-status--pending) {
+  background: var(--p-secondary-500) !important;
+  color: var(--p-surface-0) !important;
+}
+
+.cal-wrap--admin :deep(.vuecal__event) {
+  cursor: pointer;
 }
 </style>

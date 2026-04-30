@@ -2,11 +2,10 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
-import Dialog from 'primevue/dialog'
 import Divider from 'primevue/divider'
 import Drawer from 'primevue/drawer'
-import FloatLabel from 'primevue/floatlabel'
-import InputText from 'primevue/inputtext'
+import CadastroDialog from '@/components/CadastroDialog.vue'
+import LoginDialog from '@/components/LoginDialog.vue'
 import { useUserSession } from '@/composables/useUserSession'
 
 const route = useRoute()
@@ -47,23 +46,46 @@ const navItems = [
   { label: 'Agendar', to: '/agendamento', name: 'agendamento' },
   { label: 'Calendário', to: '/calendario', name: 'calendario' },
   { label: 'Pacotes', to: '/pacotes', name: 'pacotes' },
+  {
+    label: 'Cadastrar Pacotes',
+    to: '/pacotes/novo',
+    name: 'novo-pacote',
+    adminOnly: true,
+  },
+  {
+    label: 'Usuários',
+    to: '/admin/usuarios',
+    name: 'admin-usuarios',
+    adminOnly: true,
+  },
 ] as const
+const visibleNavItems = computed(() =>
+  navItems.filter(
+    (item) => !('adminOnly' in item) || !item.adminOnly || session.userCategory.value === 'admin',
+  ),
+)
 
 const loginVisible = ref(false)
-const loginName = ref('')
+const cadastroVisible = ref(false)
 
 function openLogin() {
+  cadastroVisible.value = false
   loginVisible.value = true
 }
 
-function closeLogin() {
+function openCadastro() {
   loginVisible.value = false
-  loginName.value = ''
+  cadastroVisible.value = true
 }
 
-function submitLogin() {
-  session.login(loginName.value)
-  closeLogin()
+function onLoginRequestRegister() {
+  loginVisible.value = false
+  cadastroVisible.value = true
+}
+
+function onCadastroRequestLogin() {
+  cadastroVisible.value = false
+  loginVisible.value = true
 }
 
 const userChipTitle = computed(() => session.displayName.value)
@@ -104,14 +126,23 @@ watch(
       </RouterLink>
 
       <div class="app-header__actions">
-        <Button icon="pi pi-calendar" severity="secondary" text rounded class="app-header__saldo" :badge="saldoBadgeStr"
-          badge-severity="success" aria-label="Horas disponíveis para agendamentos" :title="saldoBtnTitle"
-          @click="router.push({ name: 'agendamento' })" />
         <template v-if="!session.isLoggedIn.value">
+          <Button
+            label="Criar conta"
+            icon="pi pi-user-plus"
+            severity="secondary"
+            size="small"
+            class="app-header__signup"
+            outlined
+            @click="openCadastro"
+          />
           <Button label="Entrar" icon="pi pi-sign-in" severity="primary" size="small" class="app-header__login"
             @click="openLogin" />
         </template>
         <template v-else>
+        <Button icon="pi pi-calendar" severity="secondary" text rounded class="app-header__saldo" :badge="saldoBadgeStr"
+          badge-severity="success" aria-label="Horas disponíveis para agendamentos" :title="saldoBtnTitle"
+          @click="router.push({ name: 'agendamento' })" />
           <div class="app-header__user" :title="userChipTitle">
             <i class="pi pi-user app-header__user-icon" aria-hidden="true" />
             <span class="app-header__user-name">{{ session.displayName }}</span>
@@ -122,25 +153,14 @@ watch(
       </div>
     </header>
 
-    <Dialog v-model:visible="loginVisible" modal header="Entrar" class="app-login-dialog"
-      :style="{ width: 'min(22rem, 92vw)' }" :draggable="false" @hide="loginName = ''">
-      <p class="app-login-dialog__hint">Use um nome para identificar sua sessão neste dispositivo.</p>
-      <FloatLabel class="app-login-dialog__field">
-        <InputText id="login-nome" v-model="loginName" class="w-full" fluid autocomplete="username"
-          @keyup.enter="submitLogin" />
-        <label for="login-nome">Nome</label>
-      </FloatLabel>
-      <template #footer>
-        <Button label="Cancelar" severity="secondary" text @click="closeLogin" />
-        <Button label="Entrar" icon="pi pi-check" @click="submitLogin" />
-      </template>
-    </Dialog>
+    <LoginDialog v-model:visible="loginVisible" @request-register="onLoginRequestRegister" />
+    <CadastroDialog v-model:visible="cadastroVisible" @request-login="onCadastroRequestLogin" />
 
     <div class="app-frame">
       <aside class="app-sidebar" :class="{ 'app-sidebar--collapsed': isDesktop && !sidebarOpen }"
         aria-label="Navegação principal">
         <nav class="side-nav">
-          <RouterLink v-for="item in navItems" :key="item.name" :to="item.to" class="side-nav__link"
+          <RouterLink v-for="item in visibleNavItems" :key="item.name" :to="item.to" class="side-nav__link"
             active-class="side-nav__link--active">
             {{ item.label }}
           </RouterLink>
@@ -160,15 +180,19 @@ watch(
       </template>
 
       <nav class="drawer-nav" aria-label="Menu">
-        <RouterLink v-for="item in navItems" :key="`d-${item.name}`" :to="item.to" class="drawer-nav__link"
+        <RouterLink v-for="item in visibleNavItems" :key="`d-${item.name}`" :to="item.to" class="drawer-nav__link"
           active-class="drawer-nav__link--active" @click="closeDrawer">
           {{ item.label }}
         </RouterLink>
         <Divider />
         <div class="drawer-account">
           <template v-if="!session.isLoggedIn.value">
-            <Button label="Entrar" icon="pi pi-sign-in" fluid severity="secondary"
-              @click="openLogin(); closeDrawer()" />
+            <div class="drawer-auth-actions">
+              <Button label="Entrar" icon="pi pi-sign-in" fluid severity="secondary"
+                @click="openLogin(); closeDrawer()" />
+              <Button label="Criar conta" icon="pi pi-user-plus" fluid severity="secondary" outlined
+                @click="openCadastro(); closeDrawer()" />
+            </div>
           </template>
           <template v-else>
             <p class="drawer-account__name">{{ session.displayName }}</p>
@@ -243,6 +267,12 @@ watch(
   padding-right: 0.35rem;
 }
 
+.app-header__signup {
+  color: var(--p-primary-100) !important;
+  border-color: color-mix(in srgb, var(--p-primary-100), transparent 45%) !important;
+  flex-shrink: 0;
+}
+
 .app-header__login {
   color: var(--p-primary-100) !important;
   border-color: color-mix(in srgb, var(--p-primary-100), transparent 55%) !important;
@@ -291,15 +321,10 @@ watch(
   flex-shrink: 0;
 }
 
-.app-login-dialog__hint {
-  margin: 0 0 1rem;
-  font-size: 0.9rem;
-  color: var(--p-surface-600);
-  line-height: 1.45;
-}
-
-.app-login-dialog__field {
-  width: 100%;
+.drawer-auth-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .drawer-account {

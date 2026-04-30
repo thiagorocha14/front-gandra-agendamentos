@@ -1,33 +1,175 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
 import Card from 'primevue/card'
 import DatePicker from 'primevue/datepicker'
 import FloatLabel from 'primevue/floatlabel'
-import InputMask from 'primevue/inputmask'
 import InputText from 'primevue/inputtext'
+import Message from 'primevue/message'
 import Select from 'primevue/select'
+import { AgendamentoService } from '@/services/AgendamentoService'
+import { QuadraService } from '@/services/QuadraService'
+import type { Court } from '@/types/api'
+import { getApiErrorMessage } from '@/utils/apiError'
+import { addMinutesToDate, toBookingDateString, toTimeHHmm } from '@/utils/bookingFormat'
+import { useUserSession } from '@/composables/useUserSession'
 
-const quadras = [
-  { label: 'Quadra 1', value: 'quadra-1' },
-  { label: 'Quadra 2', value: 'quadra-2' },
-  { label: 'Quadra 3', value: 'quadra-3' },
-  { label: 'Quadra 4', value: 'quadra-4' },
-]
+const VALOR_HORA_REAIS = 80
 
-const nome = ref('')
-const quadra = ref<string | null>(null)
-const dataHora = ref<Date | null>(null)
-const telefone = ref('')
+const durationOptions = [
+  { label: '1h', value: 60 },
+  { label: '1h 30min', value: 90 },
+  { label: '2h', value: 120 },
+  { label: '2h 30min', value: 150 },
+  { label: '3h', value: 180 },
+  { label: '3h 30min', value: 210 },
+  { label: '4h', value: 240 },
+] as const
 
-function enviar() {
-  // Integração com API pode ser adicionada aqui
-  console.info({
-    nome: nome.value,
-    quadra: quadra.value,
-    dataHora: dataHora.value,
-    telefone: telefone.value,
+/** Horários de início: 8h–12h e 14h–22h (funcionamento do clube). */
+const horasInicioClube = [
+  8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+] as const
+const horaInicioOpcoes = horasInicioClube.map((h) => ({
+  label: `${String(h).padStart(2, '0')}:00`,
+  value: h,
+}))
+
+function dataHoraInicioReserva(hora: number): Date {
+  return new Date(1970, 0, 1, hora, 0, 0, 0)
+}
+
+const courts = ref<Court[]>([])
+const courtsLoading = ref(true)
+const courtsLoadError = ref('')
+
+const { user } = useUserSession()
+const guestName = ref(user.value?.name ?? '')
+const phone = ref(user.value?.phone ?? '')
+const courtId = ref<number | null>(null)
+const bookingDate = ref<Date | null>(null)
+const startHour = ref<number | null>(null)
+const durationMinutes = ref<(typeof durationOptions)[number]['value']>(60)
+
+const submitting = ref(false)
+const submitError = ref('')
+const submitSuccess = ref('')
+
+const horarioInicioDate = computed(() => {
+  if (startHour.value == null) return null
+  return dataHoraInicioReserva(startHour.value)
+})
+
+const horarioFim = computed(() => {
+  if (!horarioInicioDate.value) return null
+  return addMinutesToDate(horarioInicioDate.value, durationMinutes.value)
+})
+
+const nomeQuadraSelecionada = computed(() => {
+  if (courtId.value == null) return ''
+  return courts.value.find((c) => c.id === courtId.value)?.name ?? ''
+})
+
+const valorEstimadoReais = computed(
+  () => (durationMinutes.value / 60) * VALOR_HORA_REAIS,
+)
+
+const textoInformativoResumo = computed(() => {
+  if (!bookingDate.value || !horarioInicioDate.value || !horarioFim.value) {
+    return ''
+  }
+  const quadraTxt = nomeQuadraSelecionada.value
+    ? nomeQuadraSelecionada.value
+    : 'não selecionada'
+  const fmtData = bookingDate.value.toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
   })
+  const fmtHora = (d: Date) =>
+    d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const valorFmt = new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(valorEstimadoReais.value)
+
+  debugger;
+  const quadraSelecionada = courts.value.find((c) => c.id === courtId.value)
+
+  const tempoDeDia = horarioInicioDate.value.getHours() < 18 ? 18 - horarioInicioDate.value.getHours() : 0
+  const tempoDeNoite = horarioFim.value.getHours() > 18 ? horarioFim.value.getHours() - 18 : 0
+  const valorDia = tempoDeDia * quadraSelecionada?.day_price
+  const valorNoite = tempoDeNoite * quadraSelecionada?.night_price
+  const valorTotal = valorDia + valorNoite
+  const valorTotalFmt = new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(valorTotal)
+  return `Quadra: ${quadraTxt}. Data: ${fmtData}. Início: ${fmtHora(horarioInicioDate.value)}. Término: ${fmtHora(horarioFim.value)}. Valor: ${valorTotalFmt} (R$ ${VALOR_HORA_REAIS.toFixed(2).replace('.', ',')} por hora).`
+})
+
+onMounted(async () => {
+  courtsLoadError.value = ''
+  courtsLoading.value = true
+  try {
+    courts.value = await QuadraService.getQuadras()
+  } catch (e) {
+    courtsLoadError.value = getApiErrorMessage(e)
+  } finally {
+    courtsLoading.value = false
+  }
+})
+
+async function enviar() {
+  submitError.value = ''
+  submitSuccess.value = ''
+
+  if (!guestName.value.trim()) {
+    submitError.value = 'Informe o nome.'
+    return
+  }
+
+  if (courtId.value == null || !bookingDate.value || startHour.value == null) {
+    submitError.value = 'Preencha quadra, data e horário.'
+    return
+  }
+
+  const inicio = horarioInicioDate.value
+  const fim = horarioFim.value
+  if (!inicio || !fim) {
+    submitError.value = 'Não foi possível calcular o horário de término.'
+    return
+  }
+
+  const precoCalculado = valorEstimadoReais.value.toFixed(2)
+
+  const payload = {
+    courtId: courtId.value,
+    bookingDate: toBookingDateString(bookingDate.value),
+    startTime: toTimeHHmm(inicio),
+    endTime: toTimeHHmm(fim),
+    guestName: guestName.value.trim().slice(0, 100),
+    price: precoCalculado,
+    ...(phone.value.trim() ? { phone: phone.value.trim().slice(0, 30) } : {}),
+    ...(user.value ? { userId: String(user.value.id) } : {}),
+  }
+
+  submitting.value = true
+  try {
+    const booking = await AgendamentoService.salvarAgendamento(payload)
+    submitSuccess.value = `Agendamento registrado (nº ${booking.id}, status: ${booking.status}).`
+    guestName.value = ''
+    phone.value = ''
+    courtId.value = null
+    bookingDate.value = null
+    startHour.value = null
+    durationMinutes.value = 60
+  } catch (e) {
+    submitError.value = getApiErrorMessage(e)
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 
@@ -40,29 +182,108 @@ function enviar() {
 
         <template #content>
           <div class="form-grid">
-            <FloatLabel>
-              <InputText id="nome" v-model="nome" class="w-full" autocomplete="name" fluid />
+            <Message v-if="courtsLoadError" severity="error" :closable="false">
+              {{ courtsLoadError }}
+            </Message>
+
+            <Message v-if="submitError" severity="error" closable @close="submitError = ''">
+              {{ submitError }}
+            </Message>
+
+            <Message v-if="submitSuccess" severity="success" closable @close="submitSuccess = ''">
+              {{ submitSuccess }}
+            </Message>
+
+            <FloatLabel variant="in">
+              <InputText
+                id="nome"
+                v-model="guestName"
+                class="w-full"
+                fluid
+                maxlength="100"
+                autocomplete="name"
+              />
               <label for="nome">Nome</label>
             </FloatLabel>
 
-            <FloatLabel>
-              <Select v-model="quadra" input-id="campo-quadra" :options="quadras" option-label="label"
-                option-value="value" class="w-full" fluid placeholder="Selecione a quadra" />
-            </FloatLabel>
-
-            <FloatLabel>
-              <DatePicker id="data-hora" v-model="dataHora" input-id="data-hora" show-time hour-format="24"
-                date-format="dd/mm/yy" fluid show-icon class="w-full" />
-              <label for="data-hora">Data e hora</label>
-            </FloatLabel>
-
-            <FloatLabel>
-              <InputMask id="telefone" v-model="telefone" mask="(99) 99999-9999" class="w-full" fluid autocomplete="tel"
-                inputmode="tel" />
+            <FloatLabel variant="in">
+              <InputText
+                id="telefone"
+                v-model="phone"
+                class="w-full"
+                fluid
+                maxlength="30"
+                type="tel"
+                autocomplete="tel"
+              />
               <label for="telefone">Telefone</label>
             </FloatLabel>
 
-            <Button label="Confirmar agendamento" class="form-submit" @click="enviar" />
+            <FloatLabel variant="in">
+              <Select
+                v-model="courtId"
+                inputId="campo-quadra"
+                :options="courts"
+                option-label="name"
+                option-value="id"
+                class="w-full"
+                fluid
+                :loading="courtsLoading"
+                :disabled="courtsLoading || !!courtsLoadError"
+              />
+              <label for="campo-quadra">Quadra</label>
+            </FloatLabel>
+
+            <FloatLabel variant="in">
+              <DatePicker
+                id="data-reserva"
+                v-model="bookingDate"
+                input-id="data-reserva"
+                date-format="dd/mm/yy"
+                fluid
+                show-icon
+                class="w-full"
+              />
+              <label for="data-reserva">Data</label>
+            </FloatLabel>
+
+            <FloatLabel variant="in">
+              <Select
+                v-model="startHour"
+                inputId="hora-inicio"
+                :options="horaInicioOpcoes"
+                optionLabel="label"
+                optionValue="value"
+                class="w-full"
+                fluid
+              />
+              <label for="hora-inicio">Horário</label>
+            </FloatLabel>
+
+            <FloatLabel variant="in">
+              <Select
+                v-model="durationMinutes"
+                input-id="campo-duracao"
+                :options="[...durationOptions]"
+                option-label="label"
+                option-value="value"
+                class="w-full"
+                fluid
+              />
+              <label for="campo-duracao">Duração</label>
+            </FloatLabel>
+
+            <p v-if="textoInformativoResumo" class="form-summary" role="status">
+              {{ textoInformativoResumo }}
+            </p>
+
+            <Button
+              label="Confirmar agendamento"
+              class="form-submit"
+              :loading="submitting"
+              :disabled="courtsLoading || !!courtsLoadError"
+              @click="enviar"
+            />
           </div>
         </template>
       </Card>
@@ -101,6 +322,17 @@ function enviar() {
   flex-direction: column;
   gap: 1.75rem;
   padding-top: 0.5rem;
+}
+
+.form-summary {
+  margin: 0;
+  padding: 0.875rem 1rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--p-surface-700);
+  background: var(--p-surface-100);
+  border-radius: var(--p-content-border-radius);
+  border: 1px solid var(--p-surface-200);
 }
 
 .form-submit {
