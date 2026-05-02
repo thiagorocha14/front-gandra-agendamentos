@@ -28,12 +28,12 @@ export const AgendamentoService = {
   },
 
   async aprovarAgendamento(id: string): Promise<Booking> {
-    const { data } = await apiClient.patch<Booking>(`/bookings/approve-booking/${id}`)
+    const { data } = await apiClient.put<Booking>(`/bookings/approve-booking/${id}`)
     return data
   },
 
   async cancelarAgendamento(id: string): Promise<Booking> {
-    const { data } = await apiClient.patch<Booking>(`/bookings/cancel-booking/${id}`)
+    const { data } = await apiClient.put<Booking>(`/bookings/cancel-booking/${id}`)
     return data
   },
 }

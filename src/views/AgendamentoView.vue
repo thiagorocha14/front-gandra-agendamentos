@@ -14,7 +14,80 @@ import { getApiErrorMessage } from '@/utils/apiError'
 import { addMinutesToDate, toBookingDateString, toTimeHHmm } from '@/utils/bookingFormat'
 import { useUserSession } from '@/composables/useUserSession'
 
-const VALOR_HORA_REAIS = 80
+/** A partir desta hora (inclusive) aplica-se `night_price`; antes, `day_price`. */
+const HORA_LIMITE_DIURNO_NOTURNO = 15
+
+/**
+ * Distribui o intervalo [inicio, fim) em horas: antes de `limiteHora` conta como diurno,
+ * a partir dessa hora (inclusive) como noturno.
+ */
+function horasDiurnasENoturnas(
+  inicio: Date,
+  fim: Date,
+  limiteHora = HORA_LIMITE_DIURNO_NOTURNO,
+): { horasDia: number; horasNoite: number } {
+  const MS_H = 3_600_000
+  let cursor = inicio.getTime()
+  const end = fim.getTime()
+  let horasDia = 0
+  let horasNoite = 0
+  if (end <= cursor) return { horasDia: 0, horasNoite: 0 }
+  while (cursor < end) {
+    const d = new Date(cursor)
+    const limite = new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate(),
+      limiteHora,
+      0,
+      0,
+      0,
+    ).getTime()
+    const fimDiaCalendario = new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate() + 1,
+      0,
+      0,
+      0,
+      0,
+    ).getTime()
+    if (cursor < limite) {
+      const sliceEnd = Math.min(end, limite)
+      horasDia += (sliceEnd - cursor) / MS_H
+      cursor = sliceEnd
+    } else {
+      const sliceEnd = Math.min(end, fimDiaCalendario)
+      horasNoite += (sliceEnd - cursor) / MS_H
+      cursor = sliceEnd
+    }
+  }
+  return { horasDia, horasNoite }
+}
+
+/** Valor total da reserva com base nas horas em cada faixa e nos preços/hora da quadra. */
+function calcularValorReservaPorFaixasHorarias(
+  inicio: Date,
+  fim: Date,
+  dayPricePerHour: number,
+  nightPricePerHour: number,
+): { horasDia: number; horasNoite: number; valorTotal: number } {
+  const { horasDia, horasNoite } = horasDiurnasENoturnas(inicio, fim)
+  return {
+    horasDia,
+    horasNoite,
+    valorTotal: horasDia * dayPricePerHour + horasNoite * nightPricePerHour,
+  }
+}
+
+function formatarHorasResumo(horas: number): string {
+  if (horas <= 0) return '0h'
+  const totalMin = Math.round(horas * 60)
+  const hh = Math.floor(totalMin / 60)
+  const mm = totalMin % 60
+  if (mm === 0) return `${hh}h`
+  return `${hh}h${String(mm).padStart(2, '0')}`
+}
 
 const durationOptions = [
   { label: '1h', value: 60 },
@@ -70,9 +143,17 @@ const nomeQuadraSelecionada = computed(() => {
   return courts.value.find((c) => c.id === courtId.value)?.name ?? ''
 })
 
-const valorEstimadoReais = computed(
-  () => (durationMinutes.value / 60) * VALOR_HORA_REAIS,
-)
+const valorEstimadoReais = computed(() => {
+  if (!horarioInicioDate.value || !horarioFim.value || courtId.value == null) return 0
+  const q = courts.value.find((c) => c.id === courtId.value)
+  if (!q) return 0
+  return calcularValorReservaPorFaixasHorarias(
+    horarioInicioDate.value,
+    horarioFim.value,
+    q.day_price,
+    q.night_price,
+  ).valorTotal
+})
 
 const textoInformativoResumo = computed(() => {
   if (!bookingDate.value || !horarioInicioDate.value || !horarioFim.value) {
@@ -89,24 +170,37 @@ const textoInformativoResumo = computed(() => {
   })
   const fmtHora = (d: Date) =>
     d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-  const valorFmt = new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(valorEstimadoReais.value)
+  const fmtMoeda = (v: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
-  debugger;
   const quadraSelecionada = courts.value.find((c) => c.id === courtId.value)
 
-  const tempoDeDia = horarioInicioDate.value.getHours() < 18 ? 18 - horarioInicioDate.value.getHours() : 0
-  const tempoDeNoite = horarioFim.value.getHours() > 18 ? horarioFim.value.getHours() - 18 : 0
-  const valorDia = tempoDeDia * quadraSelecionada?.day_price
-  const valorNoite = tempoDeNoite * quadraSelecionada?.night_price
-  const valorTotal = valorDia + valorNoite
-  const valorTotalFmt = new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(valorTotal)
-  return `Quadra: ${quadraTxt}. Data: ${fmtData}. Início: ${fmtHora(horarioInicioDate.value)}. Término: ${fmtHora(horarioFim.value)}. Valor: ${valorTotalFmt} (R$ ${VALOR_HORA_REAIS.toFixed(2).replace('.', ',')} por hora).`
+  let trechoValor = ''
+  if (quadraSelecionada) {
+    const { horasDia, horasNoite, valorTotal } = calcularValorReservaPorFaixasHorarias(
+      horarioInicioDate.value,
+      horarioFim.value,
+      quadraSelecionada.day_price,
+      quadraSelecionada.night_price,
+    )
+    const partesDetalhe: string[] = []
+    if (horasDia > 0) {
+      partesDetalhe.push(
+        `${formatarHorasResumo(horasDia)} diurnas (${fmtMoeda(quadraSelecionada.day_price)}/h, antes das ${String(HORA_LIMITE_DIURNO_NOTURNO).padStart(2, '0')}:00)`,
+      )
+    }
+    if (horasNoite > 0) {
+      partesDetalhe.push(
+        `${formatarHorasResumo(horasNoite)} noturnas (${fmtMoeda(quadraSelecionada.night_price)}/h, a partir das ${String(HORA_LIMITE_DIURNO_NOTURNO).padStart(2, '0')}:00)`,
+      )
+    }
+    const detalhe = partesDetalhe.length ? ` — ${partesDetalhe.join('; ')}` : ''
+    trechoValor = ` Valor: ${fmtMoeda(valorTotal)}.${detalhe}`
+  } else {
+    trechoValor = ' Selecione a quadra para ver o valor estimado.'
+  }
+
+  return `Quadra: ${quadraTxt}. Data: ${fmtData}. Início: ${fmtHora(horarioInicioDate.value)}. Término: ${fmtHora(horarioFim.value)}.${trechoValor}`
 })
 
 onMounted(async () => {
@@ -195,81 +289,37 @@ async function enviar() {
             </Message>
 
             <FloatLabel variant="in">
-              <InputText
-                id="nome"
-                v-model="guestName"
-                class="w-full"
-                fluid
-                maxlength="100"
-                autocomplete="name"
-              />
+              <InputText id="nome" v-model="guestName" class="w-full" fluid maxlength="100" autocomplete="name" />
               <label for="nome">Nome</label>
             </FloatLabel>
 
             <FloatLabel variant="in">
-              <InputText
-                id="telefone"
-                v-model="phone"
-                class="w-full"
-                fluid
-                maxlength="30"
-                type="tel"
-                autocomplete="tel"
-              />
+              <InputText id="telefone" v-model="phone" class="w-full" fluid maxlength="30" type="tel"
+                autocomplete="tel" />
               <label for="telefone">Telefone</label>
             </FloatLabel>
 
             <FloatLabel variant="in">
-              <Select
-                v-model="courtId"
-                inputId="campo-quadra"
-                :options="courts"
-                option-label="name"
-                option-value="id"
-                class="w-full"
-                fluid
-                :loading="courtsLoading"
-                :disabled="courtsLoading || !!courtsLoadError"
-              />
+              <Select v-model="courtId" inputId="campo-quadra" :options="courts" option-label="name" option-value="id"
+                class="w-full" fluid :loading="courtsLoading" :disabled="courtsLoading || !!courtsLoadError" />
               <label for="campo-quadra">Quadra</label>
             </FloatLabel>
 
             <FloatLabel variant="in">
-              <DatePicker
-                id="data-reserva"
-                v-model="bookingDate"
-                input-id="data-reserva"
-                date-format="dd/mm/yy"
-                fluid
-                show-icon
-                class="w-full"
-              />
+              <DatePicker id="data-reserva" v-model="bookingDate" input-id="data-reserva" date-format="dd/mm/yy" fluid
+                show-icon class="w-full" />
               <label for="data-reserva">Data</label>
             </FloatLabel>
 
             <FloatLabel variant="in">
-              <Select
-                v-model="startHour"
-                inputId="hora-inicio"
-                :options="horaInicioOpcoes"
-                optionLabel="label"
-                optionValue="value"
-                class="w-full"
-                fluid
-              />
+              <Select v-model="startHour" inputId="hora-inicio" :options="horaInicioOpcoes" optionLabel="label"
+                optionValue="value" class="w-full" fluid />
               <label for="hora-inicio">Horário</label>
             </FloatLabel>
 
             <FloatLabel variant="in">
-              <Select
-                v-model="durationMinutes"
-                input-id="campo-duracao"
-                :options="[...durationOptions]"
-                option-label="label"
-                option-value="value"
-                class="w-full"
-                fluid
-              />
+              <Select v-model="durationMinutes" input-id="campo-duracao" :options="[...durationOptions]"
+                option-label="label" option-value="value" class="w-full" fluid />
               <label for="campo-duracao">Duração</label>
             </FloatLabel>
 
@@ -277,13 +327,8 @@ async function enviar() {
               {{ textoInformativoResumo }}
             </p>
 
-            <Button
-              label="Confirmar agendamento"
-              class="form-submit"
-              :loading="submitting"
-              :disabled="courtsLoading || !!courtsLoadError"
-              @click="enviar"
-            />
+            <Button label="Confirmar agendamento" class="form-submit" :loading="submitting"
+              :disabled="courtsLoading || !!courtsLoadError" @click="enviar" />
           </div>
         </template>
       </Card>

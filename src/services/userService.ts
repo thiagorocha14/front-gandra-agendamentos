@@ -16,7 +16,7 @@ export const userService = {
     id: string | number,
     payload: AtualizarUsuarioPayload,
   ): Promise<AppUser> {
-    const { data } = await apiClient.patch<AppUser>(`/users/${id}`, payload)
+    const { data } = await apiClient.put<AppUser>(`/users/${id}`, payload)
     return data
   },
 }

@@ -48,7 +48,7 @@ export const PacotesAgendamentosService = {
       formData.append('coverImage', payload.coverImage)
     }
 
-    const { data } = await apiClient.patch<BookingBundle>(`/booking-bundles/${id}`, formData, {
+    const { data } = await apiClient.put<BookingBundle>(`/booking-bundles/${id}`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -58,7 +58,7 @@ export const PacotesAgendamentosService = {
   },
 
   async desativarPacote(id: string | number): Promise<BookingBundle> {
-    const { data } = await apiClient.patch<BookingBundle>(
+    const { data } = await apiClient.put<BookingBundle>(
       `/booking-bundles/${id}/deactivate`,
       {},
     )
